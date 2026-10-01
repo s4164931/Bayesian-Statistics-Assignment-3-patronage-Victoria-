@@ -1,0 +1,6 @@
+install.packages(c("runjags", "coda"))
+library(runjags)
+library(coda)
+source("~/Downloads/plot_dist.R") # from https://github.com/rasmusab/distribution_diagrams (thankyou)
+source("~/Downloads/DBDA2E-utilities.R")
+data = read.csv("Victorian Metro Train Patronage (and Stony Point line).csv")
