@@ -45,9 +45,6 @@ plot_dist(dists$gamma, labels = c(params = "A, B"), scale = 4)
 
 model_text <- "
 data {
-  for (i in 1:N_rows) {
-    log_y[i] <- log(y[i])
-  }
   for (j in 1:N_cols) {
     for (i in 1:N_rows) {
       log_x[i, j] <- log(x[i, j])
@@ -55,9 +52,9 @@ data {
   }
   # prior settings
   mean_priors[1] <- 7
-  mean_priors[2] <- -0.15 # FIXME!!! 6.85 or -0.15? (negatives first, if this fails, try the other)
-  mean_priors[3] <- -0.5
-  mean_priors[4] <- -0.8
+  mean_priors[2] <- 6.85
+  mean_priors[3] <- 6.5
+  mean_priors[4] <- 6.2
   variance_priors[1] <- 0.25
   variance_priors[2] <- 16
   variance_priors[3] <- 4
@@ -70,31 +67,31 @@ data {
   B_Gamma_prior[2] <- 0.1
   B_Gamma_prior[3] <- 0.4
   B_Gamma_prior[4] <- 0.4
-}
+} 
 model { #??? How do I do heirachial level???
   for (j in 1:N_rows) {
-    log_y[j] ~ dpois(log_lambda[j])
-    log_lambda[j] <- log_B[1, station[j]] + sum(log_B[station[j], 2:N_cols] * log_x[j, 2:N_cols]) # CAN JAGS ACCEPT THIS???
+    y[j] ~ dpois(log_lambda[j]) # log_y[20], or: log_y[1], or: x = 12.4... at log_y[98] BUG!!!
+    log_lambda[j] <- log_B[station[j], 1] + sum(log_B[station[j], 2:N_cols] * log_x[j, 2:N_cols]) # CAN JAGS ACCEPT THIS???
+    for (i in 1:N_cols) {
+      log_B[j, i] ~ dnorm(log_mean_B[i], log_var_B[i]) # This line is the bug I think, loop for every value?
+    }
   }
   for (i in 1:N_cols) {
-    log_B[i] ~ dnorm(log_mean_B[i], log_var_B[i])
     log_mean_B[i] ~ dnorm(mean_priors[i], variance_priors[i])
-    log_var_B[i] ~ dnorm(A_Gamma_prior[i], B_Gamma_prior[i])
+    log_var_B[i] ~ dgamma(A_Gamma_prior[i], B_Gamma_prior[i])
   }
-  B[1:N_cols] <- exp(log_B[1:N_cols])
-  mean_B[1:N_cols] <- exp(log_mean_B[1:N_cols])
-  var_B[1:N_cols] <- exp(log_var_B[1:N_cols])
 }"
 
 writeLines(model_text, con = "station_patronage_model.txt")
 
 failed.jags('model')
+cleanup.jags()
 
 parameters = c("var_B", "mean_B", "B", "log_var_B", "log_mean_B", "log_B")
 adaption_steps = 500
-burnin_steps = 100
+burnin_steps = 100000
 num_chains = 3
-thinning_steps = 2
+thinning_steps = 1000
 sample_steps = 1000
 saved_steps = sample_steps * thinning_steps
 start_time = proc.time()
@@ -104,6 +101,32 @@ time_taken = end_time - start_time
 time_taken
 model_list = as.mcmc.list(Station_Model)
 model_list
+diagnostic_plot_create <- function(JAGS_Model) {
+  diagMCMC(JAGS_Model, parName = "log_var_B[1]")
+  diagMCMC(JAGS_Model, parName = "log_var_B[2]")
+  diagMCMC(JAGS_Model, parName = "log_var_B[3]")
+  diagMCMC(JAGS_Model, parName = "log_var_B[4]")
+  diagMCMC(JAGS_Model, parName = "log_mean_B[1]")
+  diagMCMC(JAGS_Model, parName = "log_mean_B[2]")
+  diagMCMC(JAGS_Model, parName = "log_mean_B[3]")
+  diagMCMC(JAGS_Model, parName = "log_mean_B[4]")
+  diagMCMC(JAGS_Model, parName = "log_B[1]")
+  diagMCMC(JAGS_Model, parName = "log_B[2]")
+  diagMCMC(JAGS_Model, parName = "log_B[3]")
+  diagMCMC(JAGS_Model, parName = "log_B[4]")
+}
+diagnostic_plot_create(model_list)
+diagMCMC(model_list, parName = "log_var_B[1]")
+plotPost(model_list[,"log_var_B[1]"], main = "scaled beta 0", xlab = "Change in Sale Price ($100K)")
+#   for (j in 1:N_rows) {
+#for (i in 1:N_cols) {
+#  B[j, i] <- exp(log_B[j, i]) # BUG HERE???
+#}
+#}
+#for (i in 1:N_cols) {
+#  mean_B[i] <- exp(log_mean_B[i])
+#  var_B[i] <- exp(log_var_B[i])
+#}
 # How does station patronage vary across day types 
 # (normal weekday, school holiday weekday, Saturday, Sunday), and how much does 
 # this pattern differ across Melbourne train stations? - across stations?
