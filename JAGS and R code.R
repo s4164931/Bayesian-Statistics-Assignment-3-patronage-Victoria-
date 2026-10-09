@@ -1,6 +1,8 @@
 # Hierarchical Bayesian model for Victorian station patronage
 # Normal weekdays are the reference day type.
-
+install.packages("glue")
+library(glue)
+source("~/Downloads/DBDA2E-utilities.R")
 required_packages <- c("runjags", "coda")
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
@@ -20,7 +22,7 @@ suppressPackageStartupMessages({
 
 set.seed(2269)
 
-data_path <- "Victorian Metro Train Patronage (and Stony Point line).csv"
+data_path <- "~/desktop/Victorian Metro Train Patronage (and Stony Point line).csv"
 output_dir <- "outputs"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -53,6 +55,7 @@ y <- as.integer(round(c(t(patronage_matrix))))
 station <- rep(seq_len(N_station), each = length(day_columns))
 
 # Indicator variables use a normal weekday as the reference category.
+# Luke - how does the data interact with this???
 school_holiday <- rep(c(0, 1, 0, 0), times = N_station)
 saturday <- rep(c(0, 0, 1, 0), times = N_station)
 sunday <- rep(c(0, 0, 0, 1), times = N_station)
@@ -129,7 +132,7 @@ fast_test <- identical(Sys.getenv("BAYES_FAST_TEST"), "1")
 adapt_steps <- if (fast_test) 500 else 2000
 burnin_steps <- if (fast_test) 1000 else 5000
 sample_steps <- if (fast_test) 2000 else 10000
-thin_steps <- 1
+thin_steps <- 5
 
 parameters <- c(
   "mu",
@@ -137,7 +140,9 @@ parameters <- c(
   "tau",
   "rate_school_holiday",
   "rate_saturday",
-  "rate_sunday"
+  "rate_sunday",
+  "beta",
+  "lambda"
 )
 
 rng_names <- c(
@@ -174,7 +179,38 @@ elapsed_time <- proc.time() - start_time
 print(elapsed_time)
 
 model_list <- as.mcmc.list(station_model)
+diagMCMC(model_list, parName = "mu[1]")
+diagMCMC(model_list, parName = "mu[2]")
+diagMCMC(model_list, parName = "mu[3]")
+diagMCMC(model_list, parName = "mu[4]")
+diagMCMC(model_list, parName = "sigma[1]")
+diagMCMC(model_list, parName = "sigma[2]")
+diagMCMC(model_list, parName = "sigma[3]")
+diagMCMC(model_list, parName = "sigma[4]")
+diagMCMC(model_list, parName = "tau[1]")
+diagMCMC(model_list, parName = "tau[2]")
+diagMCMC(model_list, parName = "tau[3]")
+diagMCMC(model_list, parName = "tau[4]")
+diagMCMC(model_list, parName = "rate_school_holiday")
+diagMCMC(model_list, parName = "rate_saturday")
+diagMCMC(model_list, parName = "rate_sunday")
+diagMCMC(model_list, parName = paste0("beta[195,1]"))
+for (n in 1:N_obs) {
+  diagMCMC(model_list, parName = paste0("lambda[",n,"]")) # 888
+}
+for (i in 1:nrow(patronage_data)) {
+  for (k in 1:4) {
+    diagMCMC(model_list, parName = paste0("beta[",i,",",k,"]")) # 888
+  }
+}
+graphics.off()
+dpois(y[4], lambda = 2250)
+plotPost(model_list[,"lambda[1]"])
+plotPost(model_list[,"beta[1,3]"])
+plotPost(model_list[,"beta[1,4]"])
+
 saveRDS(model_list, file.path(output_dir, "station_patronage_mcmc.rds"))
+summary(model_list)
 
 summary_stats <- summary(model_list)
 posterior_summary <- data.frame(
