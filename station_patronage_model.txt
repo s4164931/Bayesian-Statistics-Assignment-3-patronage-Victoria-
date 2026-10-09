@@ -1,0 +1,27 @@
+
+model {
+  for (n in 1:N_obs) {
+    y[n] ~ dpois(lambda[n])
+    log(lambda[n]) <- beta[station[n], 1] +
+      beta[station[n], 2] * school_holiday[n] +
+      beta[station[n], 3] * saturday[n] +
+      beta[station[n], 4] * sunday[n]
+  }
+
+  for (s in 1:N_station) {
+    for (k in 1:4) {
+      beta[s, k] ~ dnorm(mu[k], tau[k])
+    }
+  }
+
+  for (k in 1:4) {
+    mu[k] ~ dnorm(mean_prior[k], mean_precision[k])
+    tau[k] ~ dgamma(A_gamma[k], B_gamma[k])
+    sigma[k] <- 1 / sqrt(tau[k])
+  }
+
+  rate_school_holiday <- exp(mu[2])
+  rate_saturday <- exp(mu[3])
+  rate_sunday <- exp(mu[4])
+}
+
