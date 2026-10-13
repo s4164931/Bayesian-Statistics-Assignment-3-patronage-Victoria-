@@ -3,7 +3,7 @@
 install.packages("glue")
 library(glue)
 source("~/Downloads/DBDA2E-utilities.R")
-required_packages <- c("runjags", "coda")
+required_packages <- c("runjags", "coda", "glue")
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
 ]
@@ -18,6 +18,7 @@ if (length(missing_packages) > 0) {
 suppressPackageStartupMessages({
   library(runjags)
   library(coda)
+  library(glue)
 })
 
 set.seed(2269)
@@ -55,7 +56,6 @@ y <- as.integer(round(c(t(patronage_matrix))))
 station <- rep(seq_len(N_station), each = length(day_columns))
 
 # Indicator variables use a normal weekday as the reference category.
-# Luke - how does the data interact with this???
 school_holiday <- rep(c(0, 1, 0, 0), times = N_station)
 saturday <- rep(c(0, 0, 1, 0), times = N_station)
 sunday <- rep(c(0, 0, 0, 1), times = N_station)
@@ -194,7 +194,7 @@ diagMCMC(model_list, parName = "tau[4]")
 diagMCMC(model_list, parName = "rate_school_holiday")
 diagMCMC(model_list, parName = "rate_saturday")
 diagMCMC(model_list, parName = "rate_sunday")
-diagMCMC(model_list, parName = paste0("beta[195,1]"))
+diagMCMC(model_list, parName = paste0("beta[195,4]"))
 for (n in 1:N_obs) {
   diagMCMC(model_list, parName = paste0("lambda[",n,"]")) # 888
 }
@@ -203,8 +203,10 @@ for (i in 1:nrow(patronage_data)) {
     diagMCMC(model_list, parName = paste0("beta[",i,",",k,"]")) # 888
   }
 }
+
+gelman.diag(model_list)
+
 graphics.off()
-dpois(y[4], lambda = 2250)
 plotPost(model_list[,"lambda[1]"])
 plotPost(model_list[,"beta[1,3]"])
 plotPost(model_list[,"beta[1,4]"])
@@ -213,6 +215,21 @@ saveRDS(model_list, file.path(output_dir, "station_patronage_mcmc.rds"))
 summary(model_list)
 
 summary_stats <- summary(model_list)
+for (i in 1:nrow(summary_stats$statistics)) {
+  print(summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"SD"])
+  name <- rownames(summary_stats$statistics)[i]
+  if (summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"SD"] >= 0.05) {
+    diagMCMC(model_list, parName = rownames(summary_stats$statistics)[i])
+  }
+}
+graphics.off()
+for (i in 1:nrow(summary_stats$statistics)) {
+  print(summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"Naive SE"])
+  name <- rownames(summary_stats$statistics)[i]
+  if (summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"Naive SE"] >= sqrt(20)) {
+    diagMCMC(model_list, parName = rownames(summary_stats$statistics)[i])
+  }
+}
 posterior_summary <- data.frame(
   Parameter = rownames(summary_stats$statistics),
   Mean = summary_stats$statistics[, "Mean"],
@@ -227,10 +244,35 @@ write.csv(
   file.path(output_dir, "posterior_parameter_summary.csv"),
   row.names = FALSE
 )
-
 effective_size <- effectiveSize(model_list)
+for (i in 1:length(effective_size)) {
+  print(effective_size[i])
+  if (effective_size[i] <= 20000) {
+    diagMCMC(model_list, parName = names(effective_size[i]))
+  }
+}
 rhat_matrix <- gelman.diag(model_list, multivariate = FALSE)$psrf
+for (i in 1:length(rhat_matrix[, "Upper C.I."])) {
+  print(rhat_matrix[i, "Upper C.I."])
+  if (rhat_matrix[i, "Upper C.I."] >= 1.01) {
+    diagMCMC(model_list, parName = rownames(rhat_matrix)[i]) # shrink factor?
+  }
+}
 rhat <- rhat_matrix[, "Point est."]
+gelman.diag(model_list, multivariate = TRUE)$mpsrf
+nChain = length(model_list)
+check = "placeholder"
+for (i in 1:length(rhat_matrix[, "Upper C.I."])) {
+  name = rownames(rhat_matrix)[i]
+  for ( cIdx in 1:nChain ) {
+    print(acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[5]$acf)
+    if (acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[5]$acf >= 0.5 && check != name) {
+      diagMCMC(model_list, parName = name)
+      check = name
+    }
+  }
+}
+
 diagnostic_summary <- data.frame(
   Parameter = names(effective_size),
   ESS = as.numeric(effective_size),
