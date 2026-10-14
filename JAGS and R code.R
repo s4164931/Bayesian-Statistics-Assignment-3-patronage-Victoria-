@@ -25,6 +25,7 @@ suppressPackageStartupMessages({
 })
 
 set.seed(2269)
+
 diagMCMC_but_no_autoburnin <- function( codaObject , parName=varnames(codaObject)[1] ,
                                         saveName=NULL , saveType="jpg" ) {
   DBDAplColors = c("skyblue","black","royalblue","steelblue")
@@ -74,6 +75,37 @@ join_datasets <- function (predicted_values, observed_values, filter_name) {
   weekday_observed_values <- observed_values[,c(i,5)]
   combined_dataframe <- rbind(weekday_observed_values, weekday_patronage)
   return(combined_dataframe)
+}
+
+compare_values <- function(station_1, patronage_1, station_2, patronage_2, poisson_value_dataframe) {
+  comp_1 <- poisson_value_dataframe[(poisson_value_dataframe$station == station_1) & (poisson_value_dataframe$patronage_type == patronage_1),1]
+  comp_2 <- poisson_value_dataframe[(poisson_value_dataframe$station == station_2) & (poisson_value_dataframe$patronage_type == patronage_2),1]
+  print(comp_1)
+  difference <- NULL
+  difference <- data.frame(comp_1 - comp_2)
+  mode_val <- as.numeric(names(sort(-table(difference)))[1]) #mode
+  HDI <- HDIofMCMC(as.matrix(difference)) # this actually is the posterior from rpois, but I think it is still acceptable
+  difference$comp1 <- comp_1
+  difference$comp2 <- comp_2
+  mode_comp_1 <- as.numeric(names(sort(-table(difference$comp1)))[1])
+  mode_comp_2 <- as.numeric(names(sort(-table(difference$comp2)))[1])
+  HDI_comp1 <- HDIofMCMC(as.matrix(difference$comp1))
+  HDI_comp2 <- HDIofMCMC(as.matrix(difference$comp2))
+  hist_compare <- ggplot(data = difference, aes(comp_1...comp_2)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = paste0(station_1, " ", patronage_1, " vs ", station_2, " ", patronage_2), y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_val, color="orange", linetype="dashed")+ geom_vline(xintercept = 0, color = "green", linetype = "dashed") + geom_segment(aes(x = HDI[1], xend = HDI[2], y = 0, yend = 0), color = "red", size = 2)
+  max_value <- max(ggplot_build(hist_compare)$data[[1]]$ymax)
+  hist_compare <- hist_compare + annotate("text", x = mode_val, y = max_value + 50, label = paste0("mode = ", mode_val)) + annotate("text", x = HDI[1], y = 50, label = HDI[1], color = "white") + annotate("text", x = HDI[2], y = 50, label = HDI[2], color = "white") + annotate("text", x = (HDI[1] + HDI[2])/2, y = 100, label = "95% HDI", color = "white")
+  
+  scatter_compare <- ggplot(data = difference, aes(x = comp1, y = comp2)) + geom_point(color = "steelblue") + labs(x = paste0("Difference of Patronage for ", station_1, " ", patronage_1), title = paste0(station_1, " ", patronage_1, " vs ", station_2, " ", patronage_2), y = paste0("Difference of Patronage for ", station_2, " ", patronage_2)) + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_abline(slope = 1, intercept = 0, color = "green")
+  
+  comp_val_1 <- ggplot(data = difference, aes(comp1)) + geom_histogram(color = "steelblue") + labs(x = "Patronage", title = paste0(station_1, " ", patronage_1), y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_1, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp1[1], xend = HDI_comp1[2], y = 0, yend = 0), color = "red", size = 2)
+  max_value <- max(ggplot_build(comp_val_1)$data[[1]]$ymax)
+  comp_val_1 <- comp_val_1 + annotate("text", x = mode_comp_1, y = max_value + 50, label = paste0("mode = ", mode_comp_1)) + annotate("text", x = HDI_comp1[1], y = 50, label = HDI_comp1[1], color = "white") + annotate("text", x = HDI_comp1[2], y = 50, label = HDI_comp1[2], color = "white") + annotate("text", x = (HDI_comp1[1] + HDI_comp1[2])/2, y = 100, label = "95% HDI", color = "white")
+  
+  comp_val_2 <- ggplot(data = difference, aes(comp2)) + geom_histogram(color = "steelblue") + labs(x = "Patronage", title = paste0(station_2, " ", patronage_2), y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_2, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp2[1], xend = HDI_comp2[2], y = 0, yend = 0), color = "red", size = 2)
+  max_value <- max(ggplot_build(comp_val_2)$data[[1]]$ymax)
+  comp_val_2 <- comp_val_2 + annotate("text", x = mode_comp_2, y = max_value + 50, label = paste0("mode = ", mode_comp_2)) + annotate("text", x = HDI_comp2[1], y = 50, label = HDI_comp2[1], color = "white") + annotate("text", x = HDI_comp2[2], y = 50, label = HDI_comp2[2], color = "white") + annotate("text", x = (HDI_comp2[1] + HDI_comp2[2])/2, y = 100, label = "95% HDI", color = "white")
+  
+  ggarrange(comp_val_1, hist_compare, scatter_compare, comp_val_2, nrow = 2, ncol = 2)
 }
 
 data_path <- "~/desktop/Victorian Metro Train Patronage (and Stony Point line).csv"
@@ -139,10 +171,10 @@ write.csv(
 
 # Prior means represent the expected normal-weekday log patronage and the
 # expected log rate ratios for school holidays, Saturdays and Sundays.
-mean_prior <- c(7.00, -0.15, -0.50, -0.80)
-mean_precision <- c(0.25, 16.00, 4.00, 4.00)
-A_gamma <- c(1, 2, 2, 2)
-B_gamma <- c(1.0, 0.1, 0.4, 0.4)
+mean_prior <- c(7.00, -0.15, -0.50, -0.80) #sensitivity
+mean_precision <- c(0.25, 16.00, 4.00, 4.00) #sensitivity
+A_gamma <- c(1, 2, 2, 2) #sensitivity
+B_gamma <- c(1.0, 0.1, 0.4, 0.4) #sensitivity
 
 jags_data <- list(
   N_obs = N_obs,
@@ -460,8 +492,7 @@ for (i in 1:N_station) { # 222, each station is selected here
   poisson_value_dataframe$station[indexes_plus_3] <- station_names[i]
 }
 
-# now, comparing these overall patronage types to the actual distribution. Q1 - 1 entry? yes, blind
-
+# combining actual distribution to observed distribution:
 predicted_values <- poisson_value_dataframe[c((888 * 4117 + 1):(888 * 4118)),]
 observed_values <- NULL
 observed_values <- rbind(observed_values, patronage_data$Pax_norm_weekday)
@@ -488,35 +519,9 @@ Weekday_Patronage # better 1 at a time
 School_Weekday_Patronage
 Saturday_Patronage
 Sunday_Patronage
+# Now, comparing station time to a different time and different stations.
 
-# Now, comparing station time to a different time.
-comp_1 <- poisson_value_dataframe[(poisson_value_dataframe$station == "Sunbury") & (poisson_value_dataframe$patronage_type == "Normal Weekday Patronage"),1]
-comp_2 <- poisson_value_dataframe[(poisson_value_dataframe$station == "Sunbury") & (poisson_value_dataframe$patronage_type == "School Holiday Weekday Patronage"),1]
-difference <- NULL
-difference <- data.frame(comp_1 - comp_2)
-mode_val <- as.numeric(names(sort(-table(difference)))[1]) #mode
-HDI <- HDIofMCMC(as.matrix(difference)) # this actually is the posterior from rpois, but I think it is still acceptable
-difference$comp1 <- comp_1
-difference$comp2 <- comp_2
-mode_comp_1 <- as.numeric(names(sort(-table(difference$comp1)))[1])
-mode_comp_2 <- as.numeric(names(sort(-table(difference$comp2)))[1])
-HDI_comp1 <- HDIofMCMC(as.matrix(difference$comp1))
-HDI_comp2 <- HDIofMCMC(as.matrix(difference$comp2))
-hist_compare <- ggplot(data = difference, aes(comp_1...comp_2)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury Normal Weekday vs Sunbury School Holiday Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_val, color="orange", linetype="dashed")+ geom_vline(xintercept = 0, color = "green", linetype = "dashed") + geom_segment(aes(x = HDI[1], xend = HDI[2], y = 0, yend = 0), color = "red", size = 2)
-max_value <- max(ggplot_build(hist_compare)$data[[1]]$ymax)
-hist_compare <- hist_compare + annotate("text", x = mode_val, y = max_value + 50, label = paste0("mode = ",mode_val)) + annotate("text", x = 0, y = max_value + 50, label = "x = 0") + annotate("text", x = HDI[1], y = 50, label = HDI[1]) + annotate("text", x = HDI[2], y = 50, label = HDI[2]) + annotate("text", x = (HDI[1] + HDI[2])/2, y = 100, label = "95% HDI")
-
-scatter_compare <- ggplot(data = difference, aes(x = comp1, y = comp2)) + geom_point(color = "steelblue") + labs(x = "Difference of Patronage for Sunbury Normal Weekday", title = "Sunbury Normal Weekday vs Sunbury School Holiday Weekday", y = "Difference of Patronage for Sunbury School Holiday Weekday") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_abline(slope = 1, intercept = 0, color = "green")
-
-comp_val_1 <- ggplot(data = difference, aes(comp1)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury Normal Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_1, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp1[1], xend = HDI_comp1[2], y = 0, yend = 0), color = "red", size = 2)
-max_value <- max(ggplot_build(comp_val_1)$data[[1]]$ymax)
-comp_val_1 <- comp_val_1 + annotate("text", x = mode_comp_1, y = max_value + 50, label = paste0("mode = ",mode_comp_1)) + annotate("text", x = HDI_comp1[1], y = 50, label = HDI_comp1[1]) + annotate("text", x = HDI_comp1[2], y = 50, label = HDI_comp1[2]) + annotate("text", x = (HDI_comp1[1] + HDI_comp1[2])/2, y = 100, label = "95% HDI")
-
-comp_val_2 <- ggplot(data = difference, aes(comp2)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury School Holiday Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_2, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp2[1], xend = HDI_comp2[2], y = 0, yend = 0), color = "red", size = 2)
-max_value <- max(ggplot_build(comp_val_2)$data[[1]]$ymax)
-comp_val_2 <- comp_val_2 + annotate("text", x = mode_comp_2, y = max_value + 50, label = paste0("mode = ",mode_comp_2)) + annotate("text", x = HDI_comp2[1], y = 50, label = HDI_comp2[1]) + annotate("text", x = HDI_comp2[2], y = 50, label = HDI_comp2[2]) + annotate("text", x = (HDI_comp2[1] + HDI_comp2[2])/2, y = 100, label = "95% HDI")
-
-ggarrange(comp_val_1, hist_compare, scatter_compare, comp_val_2, nrow = 2, ncol = 2)
+compare_values("Stony Point", "Normal Weekday Patronage", "Hastings", "Normal Weekday Patronage", poisson_value_dataframe)
 
 print(day_type_summary)
 print(posterior_summary)
