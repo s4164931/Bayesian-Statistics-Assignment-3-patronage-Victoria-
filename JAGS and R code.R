@@ -3,7 +3,7 @@
 install.packages("glue")
 library(glue)
 source("~/Downloads/DBDA2E-utilities.R")
-required_packages <- c("runjags", "coda", "glue")
+required_packages <- c("runjags", "coda", "glue", "ggpubr", "tidyverse", "GGally")
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
 ]
@@ -19,9 +19,62 @@ suppressPackageStartupMessages({
   library(runjags)
   library(coda)
   library(glue)
+  library(ggpubr)
+  library(ggplot2)
+  library(GGally)
 })
 
 set.seed(2269)
+diagMCMC_but_no_autoburnin <- function( codaObject , parName=varnames(codaObject)[1] ,
+                                        saveName=NULL , saveType="jpg" ) {
+  DBDAplColors = c("skyblue","black","royalblue","steelblue")
+  openGraph(height=5,width=7)
+  par( mar=0.5+c(3,4,1,0) , oma=0.1+c(0,0,2,0) , mgp=c(2.25,0.7,0) , 
+       cex.lab=1.5 )
+  layout(matrix(1:4,nrow=2))
+  # traceplot and gelman.plot are from CODA package:
+  require(coda)
+  coda::traceplot( codaObject[,c(parName)] , main="" , ylab="Param. Value" ,
+                   col=DBDAplColors ) 
+  tryVal = try(
+    coda::gelman.plot( codaObject[,c(parName)] , main="" , auto.layout=FALSE , 
+                       col=DBDAplColors, autoburnin = FALSE )
+  )  
+  # if it runs, gelman.plot returns a list with finite shrink values:
+  if ( class(tryVal)=="try-error" ) {
+    plot.new() 
+    print(paste0("Warning: coda::gelman.plot fails for ",parName))
+  } else { 
+    if ( class(tryVal)=="list" & !is.finite(tryVal$shrink[1]) ) {
+      plot.new() 
+      print(paste0("Warning: coda::gelman.plot fails for ",parName))
+    }
+  }
+  DbdaAcfPlot(codaObject,parName,plColors=DBDAplColors)
+  DbdaDensPlot(codaObject,parName,plColors=DBDAplColors)
+  mtext( text=parName , outer=TRUE , adj=c(0.5,0.5) , cex=2.0 )
+  if ( !is.null(saveName) ) {
+    saveGraph( file=paste0(saveName,"Diag",parName), type=saveType)
+  }
+}
+
+join_datasets <- function (predicted_values, observed_values, filter_name) {
+  weekday_patronage = predicted_values[predicted_values$patronage_type == filter_name, c(1,4)]
+  colnames(weekday_patronage) <- c(filter_name, "type")
+  colnames(observed_values) <- c("Normal Weekday Patronage", "School Holiday Weekday Patronage", "Saturday Patronage", "Sunday Patronage", "type")
+  if (filter_name == "Normal Weekday Patronage") {
+    i = 1
+  } else if (filter_name == "School Holiday Weekday Patronage") {
+    i = 2
+  } else if (filter_name == "Saturday Patronage") {
+    i = 3
+  } else if (filter_name == "Sunday Patronage") {
+    i = 4
+  }
+  weekday_observed_values <- observed_values[,c(i,5)]
+  combined_dataframe <- rbind(weekday_observed_values, weekday_patronage)
+  return(combined_dataframe)
+}
 
 data_path <- "~/desktop/Victorian Metro Train Patronage (and Stony Point line).csv"
 output_dir <- "outputs"
@@ -32,6 +85,13 @@ if (!file.exists(data_path)) {
 }
 
 patronage_data <- read.csv(data_path, check.names = FALSE)
+
+normal_weekday = ggplot(data = patronage_data, aes(`Pax_norm_weekday`)) + geom_histogram(bins = 100) + labs(x = "Normal Weekday Patronage", y = "Frequency", title = "Distribution of Normal Weekday Patronage") + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"), axis.title = element_text(size = 17.5), axis.text = element_text(size = 15))
+sch_hol_weekday = ggplot(data = patronage_data, aes(`Pax_sch_hol_weekday`)) + geom_histogram(bins = 100) + labs(x = "School Holiday Weekday Patronage", y = "Frequency", title = "Distribution of School Holiday Weekday Patronage") + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"), axis.title = element_text(size = 17.5), axis.text = element_text(size = 15))
+saturday = ggplot(data = patronage_data, aes(`Pax_Saturday`)) + geom_histogram(bins = 100) + labs(x = "Saturday Patronage", y = "Frequency", title = "Distribution of Saturday Patronage") + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"), axis.title = element_text(size = 17.5), axis.text = element_text(size = 15))
+sunday = ggplot(data = patronage_data, aes(`Pax_Sunday`)) + geom_histogram(bins = 100) + labs(x = "Sunday Patronage", y = "Frequency", title = "Distribution of Sunday Patronage") + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"), axis.title = element_text(size = 17.5), axis.text = element_text(size = 15))
+figure_hist <- ggarrange(normal_weekday, sch_hol_weekday, saturday, sunday, nrow = 2, ncol = 2)
+figure_hist
 
 day_columns <- c(
   "Pax_norm_weekday",
@@ -49,7 +109,12 @@ patronage_matrix <- as.matrix(patronage_data[day_columns])
 if (anyNA(patronage_matrix) || any(patronage_matrix < 0)) {
   stop("Patronage values must be non-missing and non-negative.")
 }
+options(scipen=999)
+cor_plot <- ggpairs(patronage_matrix, columnLabels = c("Normal Weekday", "School Holiday Weekday", "Saturday", "Sunday")) + labs(x = "Patronage on x", y = "Patronage on y", title = "Correlations of Patronage Day Types") + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"), axis.title = element_text(size = 17.5), axis.text = element_text(size = 14))
 
+cor_plot[2,1] <- cor_plot[2,1] + coord_cartesian(ylim = c(0, 57000))
+cor_plot[4,2] <- cor_plot[4,2] + coord_cartesian(xlim = c(0, 57000))
+cor_plot
 N_station <- nrow(patronage_data)
 N_obs <- N_station * length(day_columns)
 y <- as.integer(round(c(t(patronage_matrix))))
@@ -132,7 +197,7 @@ fast_test <- identical(Sys.getenv("BAYES_FAST_TEST"), "1")
 adapt_steps <- if (fast_test) 500 else 2000
 burnin_steps <- if (fast_test) 1000 else 5000
 sample_steps <- if (fast_test) 2000 else 10000
-thin_steps <- 5
+thin_steps <- 10
 
 parameters <- c(
   "mu",
@@ -179,36 +244,34 @@ elapsed_time <- proc.time() - start_time
 print(elapsed_time)
 
 model_list <- as.mcmc.list(station_model)
-diagMCMC(model_list, parName = "mu[1]")
-diagMCMC(model_list, parName = "mu[2]")
-diagMCMC(model_list, parName = "mu[3]")
-diagMCMC(model_list, parName = "mu[4]")
-diagMCMC(model_list, parName = "sigma[1]")
-diagMCMC(model_list, parName = "sigma[2]")
-diagMCMC(model_list, parName = "sigma[3]")
-diagMCMC(model_list, parName = "sigma[4]")
-diagMCMC(model_list, parName = "tau[1]")
-diagMCMC(model_list, parName = "tau[2]")
-diagMCMC(model_list, parName = "tau[3]")
-diagMCMC(model_list, parName = "tau[4]")
-diagMCMC(model_list, parName = "rate_school_holiday")
-diagMCMC(model_list, parName = "rate_saturday")
-diagMCMC(model_list, parName = "rate_sunday")
-diagMCMC(model_list, parName = paste0("beta[195,4]"))
+diagMCMC_but_no_autoburnin(model_list, parName = "mu[1]")
+diagMCMC_but_no_autoburnin(model_list, parName = "mu[2]")
+diagMCMC_but_no_autoburnin(model_list, parName = "mu[3]")
+diagMCMC_but_no_autoburnin(model_list, parName = "mu[4]")
+diagMCMC_but_no_autoburnin(model_list, parName = "sigma[1]")
+diagMCMC_but_no_autoburnin(model_list, parName = "sigma[2]")
+diagMCMC_but_no_autoburnin(model_list, parName = "sigma[3]")
+diagMCMC_but_no_autoburnin(model_list, parName = "sigma[4]")
+diagMCMC_but_no_autoburnin(model_list, parName = "tau[1]")
+diagMCMC_but_no_autoburnin(model_list, parName = "tau[2]")
+diagMCMC_but_no_autoburnin(model_list, parName = "tau[3]")
+diagMCMC_but_no_autoburnin(model_list, parName = "tau[4]")
+diagMCMC_but_no_autoburnin(model_list, parName = "rate_school_holiday")
+diagMCMC_but_no_autoburnin(model_list, parName = "rate_saturday")
+diagMCMC_but_no_autoburnin(model_list, parName = "rate_sunday")
+diagMCMC_but_no_autoburnin(model_list, parName = paste0("beta[195,1]"))
 for (n in 1:N_obs) {
-  diagMCMC(model_list, parName = paste0("lambda[",n,"]")) # 888
+  diagMCMC_but_no_autoburnin(model_list, parName = paste0("lambda[",n,"]")) # 888
 }
 for (i in 1:nrow(patronage_data)) {
   for (k in 1:4) {
-    diagMCMC(model_list, parName = paste0("beta[",i,",",k,"]")) # 888
+    diagMCMC_but_no_autoburnin(model_list, parName = paste0("beta[",i,",",k,"]")) # 888
   }
 }
 
-gelman.diag(model_list)
-
 graphics.off()
-plotPost(model_list[,"lambda[1]"])
-plotPost(model_list[,"beta[1,3]"])
+plotPost(model_list[,"lambda[4]"])
+exp(plotPost(model_list[,"beta[1,1]"])[4] + plotPost(model_list[,"beta[1,4]"])[4])
 plotPost(model_list[,"beta[1,4]"])
 
 saveRDS(model_list, file.path(output_dir, "station_patronage_mcmc.rds"))
@@ -219,15 +282,14 @@ for (i in 1:nrow(summary_stats$statistics)) {
   print(summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"SD"])
   name <- rownames(summary_stats$statistics)[i]
   if (summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"SD"] >= 0.05) {
-    diagMCMC(model_list, parName = rownames(summary_stats$statistics)[i])
+    diagMCMC_but_no_autoburnin(model_list, parName = rownames(summary_stats$statistics)[i])
   }
 }
-graphics.off()
 for (i in 1:nrow(summary_stats$statistics)) {
   print(summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"Naive SE"])
   name <- rownames(summary_stats$statistics)[i]
   if (summary_stats$statistics[i,"Time-series SE"] / summary_stats$statistics[i,"Naive SE"] >= sqrt(20)) {
-    diagMCMC(model_list, parName = rownames(summary_stats$statistics)[i])
+    diagMCMC_but_no_autoburnin(model_list, parName = rownames(summary_stats$statistics)[i])
   }
 }
 posterior_summary <- data.frame(
@@ -248,26 +310,27 @@ effective_size <- effectiveSize(model_list)
 for (i in 1:length(effective_size)) {
   print(effective_size[i])
   if (effective_size[i] <= 20000) {
-    diagMCMC(model_list, parName = names(effective_size[i]))
+    diagMCMC_but_no_autoburnin(model_list, parName = names(effective_size[i]))
   }
 }
+graphics.off()
 rhat_matrix <- gelman.diag(model_list, multivariate = FALSE)$psrf
 for (i in 1:length(rhat_matrix[, "Upper C.I."])) {
   print(rhat_matrix[i, "Upper C.I."])
   if (rhat_matrix[i, "Upper C.I."] >= 1.01) {
-    diagMCMC(model_list, parName = rownames(rhat_matrix)[i]) # shrink factor?
+    diagMCMC_but_no_autoburnin(model_list, parName = rownames(rhat_matrix)[i]) # shrink factor?
   }
 }
 rhat <- rhat_matrix[, "Point est."]
-gelman.diag(model_list, multivariate = TRUE)$mpsrf
+gelman.diag(model_list, multivariate = TRUE)$mpsrf # don't use this
 nChain = length(model_list)
 check = "placeholder"
 for (i in 1:length(rhat_matrix[, "Upper C.I."])) {
   name = rownames(rhat_matrix)[i]
   for ( cIdx in 1:nChain ) {
-    print(acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[5]$acf)
-    if (acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[5]$acf >= 0.5 && check != name) {
-      diagMCMC(model_list, parName = name)
+    print(acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[10]$acf)
+    if (acf(model_list[,name][[cIdx]], lag.max = 1, plot=FALSE)[10]$acf >= 0.5 && check != name) {
+      diagMCMC_but_no_autoburnin(model_list, parName = name)
       check = name
     }
   }
@@ -338,7 +401,6 @@ for (parameter in hyperparameter_names) {
     )
   }
 }
-dev.off()
 
 png(
   file.path(output_dir, "autocorrelation_hyperparameters.png"),
@@ -366,7 +428,95 @@ for (parameter in hyperparameter_names) {
     lines(0:50, chain_acf[[chain]], col = chain_colours[chain])
   }
 }
-dev.off()
+
+# Generating the posterior data and labelling it
+a <- NULL
+for (n in 1:N_obs) {
+  a <- rbind(a, summarizePost(as.matrix(model_list, chains = TRUE)[,paste0("lambda[",n,"]")])[3])
+  print(n) # showing how many done out of 888.
+}
+a = as.vector(t(as.matrix(a)))
+a
+poisson_values <- rpois(888 * 10000, a) # 1: Normal Weekday, 2: School Holiday Weekday, 3: Saturday, 4: Sunday
+poisson_value_dataframe <- data.frame(poisson_values)
+poisson_value_dataframe$patronage_type <- "placeholder"
+poisson_value_dataframe$patronage_type[seq(1, 8880000, by = 4)] <- "Normal Weekday Patronage"
+poisson_value_dataframe$patronage_type[seq(2, 8880000, by = 4)] <- "School Holiday Weekday Patronage"
+poisson_value_dataframe$patronage_type[seq(3, 8880000, by = 4)] <- "Saturday Patronage"
+poisson_value_dataframe$patronage_type[seq(4, 8880000, by = 4)] <- "Sunday Patronage"
+
+# station labelling
+station_names <- patronage_data$Stop_name
+poisson_value_dataframe$station <- "placeholder" # 1-4 = Sunbury, 5-8 = Digger's Rest ... 888, then repeat to start
+
+for (i in 1:N_station) { # 222, each station is selected here
+  indexes <- seq(1 + (4*i - 4) ,8880000, by = 888) # this checks over every combo (i starts at 1)
+  indexes_plus_1 <- indexes + 1
+  indexes_plus_2 <- indexes + 2
+  indexes_plus_3 <- indexes + 3 # this is the by 4 part, to get each station.
+  poisson_value_dataframe$station[indexes] <- station_names[i]
+  poisson_value_dataframe$station[indexes_plus_1] <- station_names[i]
+  poisson_value_dataframe$station[indexes_plus_2] <- station_names[i]
+  poisson_value_dataframe$station[indexes_plus_3] <- station_names[i]
+}
+
+# now, comparing these overall patronage types to the actual distribution. Q1 - 1 entry? yes, blind
+
+predicted_values <- poisson_value_dataframe[c((888 * 4117 + 1):(888 * 4118)),]
+observed_values <- NULL
+observed_values <- rbind(observed_values, patronage_data$Pax_norm_weekday)
+observed_values <- rbind(observed_values, patronage_data$Pax_sch_hol_weekday)
+observed_values <- rbind(observed_values, patronage_data$Pax_Saturday)
+observed_values <- rbind(observed_values, patronage_data$Pax_Sunday)
+observed_values <- data.frame(t(observed_values))
+observed_values$type <- "Observed"
+predicted_values$type <- "Predicted"
+
+combined_dataframe <- join_datasets(predicted_values, observed_values, "Normal Weekday Patronage")
+Weekday_Patronage = ggplot(combined_dataframe, aes(`Normal Weekday Patronage`, fill = type)) + geom_density(alpha = 0.2) + labs(x = "Patronage", title = "Weekday Predicted vs Observed data", fill = "Data") + theme(plot.title = element_text(hjust = 0.5, size = 40, face = 'bold'), axis.title = element_text(size = 30), legend.text = element_text(size = 20), legend.title = element_text(size = 20), legend.key.spacing.y = unit(0.3, 'cm'), axis.text = element_text(size = 18))
+
+combined_dataframe <- join_datasets(predicted_values, observed_values, "School Holiday Weekday Patronage")
+School_Weekday_Patronage = ggplot(combined_dataframe, aes(`School Holiday Weekday Patronage`, fill = type)) + geom_density(alpha = 0.2) + labs(x = "Patronage", title = "School Weekday Predicted vs Observed data", fill = "Data") + theme(plot.title = element_text(hjust = 0.5, size = 40, face = 'bold'), axis.title = element_text(size = 30), legend.text = element_text(size = 20), legend.title = element_text(size = 20), legend.key.spacing.y = unit(0.3, 'cm'), axis.text = element_text(size = 18))
+
+combined_dataframe <- join_datasets(predicted_values, observed_values, "Saturday Patronage")
+Saturday_Patronage = ggplot(combined_dataframe, aes(`Saturday Patronage`, fill = type)) + geom_density(alpha = 0.2) + labs(x = "Patronage", title = "Saturday Predicted vs Observed data", fill = "Data") + theme(plot.title = element_text(hjust = 0.5, size = 40, face = 'bold'), axis.title = element_text(size = 30), legend.text = element_text(size = 20), legend.title = element_text(size = 20), legend.key.spacing.y = unit(0.3, 'cm'), axis.text = element_text(size = 18))
+
+combined_dataframe <- join_datasets(predicted_values, observed_values, "Sunday Patronage")
+Sunday_Patronage = ggplot(combined_dataframe, aes(`Sunday Patronage`, fill = type)) + geom_density(alpha = 0.2) + labs(x = "Patronage", title = "Sunday Predicted vs Observed data", fill = "Data") + theme(plot.title = element_text(hjust = 0.5, size = 40, face = 'bold'), axis.title = element_text(size = 30), legend.text = element_text(size = 20), legend.title = element_text(size = 20), legend.key.spacing.y = unit(0.3, 'cm'), axis.text = element_text(size = 18))
+
+Weekday_Patronage # better 1 at a time
+School_Weekday_Patronage
+Saturday_Patronage
+Sunday_Patronage
+
+# Now, comparing station time to a different time.
+comp_1 <- poisson_value_dataframe[(poisson_value_dataframe$station == "Sunbury") & (poisson_value_dataframe$patronage_type == "Normal Weekday Patronage"),1]
+comp_2 <- poisson_value_dataframe[(poisson_value_dataframe$station == "Sunbury") & (poisson_value_dataframe$patronage_type == "School Holiday Weekday Patronage"),1]
+difference <- NULL
+difference <- data.frame(comp_1 - comp_2)
+mode_val <- as.numeric(names(sort(-table(difference)))[1]) #mode
+HDI <- HDIofMCMC(as.matrix(difference)) # this actually is the posterior from rpois, but I think it is still acceptable
+difference$comp1 <- comp_1
+difference$comp2 <- comp_2
+mode_comp_1 <- as.numeric(names(sort(-table(difference$comp1)))[1])
+mode_comp_2 <- as.numeric(names(sort(-table(difference$comp2)))[1])
+HDI_comp1 <- HDIofMCMC(as.matrix(difference$comp1))
+HDI_comp2 <- HDIofMCMC(as.matrix(difference$comp2))
+hist_compare <- ggplot(data = difference, aes(comp_1...comp_2)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury Normal Weekday vs Sunbury School Holiday Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_val, color="orange", linetype="dashed")+ geom_vline(xintercept = 0, color = "green", linetype = "dashed") + geom_segment(aes(x = HDI[1], xend = HDI[2], y = 0, yend = 0), color = "red", size = 2)
+max_value <- max(ggplot_build(hist_compare)$data[[1]]$ymax)
+hist_compare <- hist_compare + annotate("text", x = mode_val, y = max_value + 50, label = paste0("mode = ",mode_val)) + annotate("text", x = 0, y = max_value + 50, label = "x = 0") + annotate("text", x = HDI[1], y = 50, label = HDI[1]) + annotate("text", x = HDI[2], y = 50, label = HDI[2]) + annotate("text", x = (HDI[1] + HDI[2])/2, y = 100, label = "95% HDI")
+
+scatter_compare <- ggplot(data = difference, aes(x = comp1, y = comp2)) + geom_point(color = "steelblue") + labs(x = "Difference of Patronage for Sunbury Normal Weekday", title = "Sunbury Normal Weekday vs Sunbury School Holiday Weekday", y = "Difference of Patronage for Sunbury School Holiday Weekday") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_abline(slope = 1, intercept = 0, color = "green")
+
+comp_val_1 <- ggplot(data = difference, aes(comp1)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury Normal Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_1, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp1[1], xend = HDI_comp1[2], y = 0, yend = 0), color = "red", size = 2)
+max_value <- max(ggplot_build(comp_val_1)$data[[1]]$ymax)
+comp_val_1 <- comp_val_1 + annotate("text", x = mode_comp_1, y = max_value + 50, label = paste0("mode = ",mode_comp_1)) + annotate("text", x = HDI_comp1[1], y = 50, label = HDI_comp1[1]) + annotate("text", x = HDI_comp1[2], y = 50, label = HDI_comp1[2]) + annotate("text", x = (HDI_comp1[1] + HDI_comp1[2])/2, y = 100, label = "95% HDI")
+
+comp_val_2 <- ggplot(data = difference, aes(comp2)) + geom_histogram(color = "steelblue") + labs(x = "Difference of Patronage", title = "Sunbury School Holiday Weekday", y = "Frequency") + theme(plot.title = element_text(hjust = 0.5, size = 15, face = 'bold'), axis.title = element_text(size = 10)) + geom_vline(xintercept=mode_comp_2, color="orange", linetype="dashed") + geom_segment(aes(x = HDI_comp2[1], xend = HDI_comp2[2], y = 0, yend = 0), color = "red", size = 2)
+max_value <- max(ggplot_build(comp_val_2)$data[[1]]$ymax)
+comp_val_2 <- comp_val_2 + annotate("text", x = mode_comp_2, y = max_value + 50, label = paste0("mode = ",mode_comp_2)) + annotate("text", x = HDI_comp2[1], y = 50, label = HDI_comp2[1]) + annotate("text", x = HDI_comp2[2], y = 50, label = HDI_comp2[2]) + annotate("text", x = (HDI_comp2[1] + HDI_comp2[2])/2, y = 100, label = "95% HDI")
+
+ggarrange(comp_val_1, hist_compare, scatter_compare, comp_val_2, nrow = 2, ncol = 2)
 
 print(day_type_summary)
 print(posterior_summary)
