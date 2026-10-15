@@ -1,2 +1,4 @@
 full_run.log
 station_patronage_mcmc.rds
+sensitivity_population_mcmc.rds
+sensitivity_model.txt
