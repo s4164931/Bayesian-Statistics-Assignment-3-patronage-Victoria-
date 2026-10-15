@@ -32,7 +32,15 @@ if (length(script_argument) == 1) {
   script_path <- gsub("~\\+~", " ", script_path)
   project_dir <- dirname(normalizePath(script_path))
 } else {
-  project_dir <- normalizePath(getwd())
+  sourced_files <- vapply(sys.frames(), function(frame) {
+    if (is.null(frame$ofile)) NA_character_ else frame$ofile
+  }, character(1))
+  sourced_files <- sourced_files[!is.na(sourced_files)]
+  project_dir <- if (length(sourced_files) > 0) {
+    dirname(normalizePath(tail(sourced_files, 1)))
+  } else {
+    normalizePath(getwd())
+  }
 }
 
 data_path <- file.path(
