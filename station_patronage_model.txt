@@ -20,6 +20,7 @@ model {
     sigma[k] <- 1 / sqrt(tau[k])
   }
 
+  rate_normal_weekday <- exp(mu[1])
   rate_school_holiday <- exp(mu[2])
   rate_saturday <- exp(mu[3])
   rate_sunday <- exp(mu[4])
