@@ -129,6 +129,7 @@ model {
     sigma[k] <- 1 / sqrt(tau[k])
   }
 
+  rate_normal_weekday <- exp(mu[1])
   rate_school_holiday <- exp(mu[2])
   rate_saturday <- exp(mu[3])
   rate_sunday <- exp(mu[4])
@@ -141,14 +142,15 @@ writeLines(model_text, model_path)
 # Use SENSITIVITY_FAST_TEST=1 for a short code check. The default is the final
 # analysis run used for the report.
 fast_test <- identical(Sys.getenv("SENSITIVITY_FAST_TEST"), "1")
-adapt_steps <- if (fast_test) 300 else 1500
-burnin_steps <- if (fast_test) 500 else 4000
-sample_steps <- if (fast_test) 1000 else 6000
-thin_steps <- if (fast_test) 2 else 3
+adapt_steps <- if (fast_test) 300 else 2000
+burnin_steps <- if (fast_test) 500 else 5000
+sample_steps <- if (fast_test) 1000 else 10000
+thin_steps <- if (fast_test) 2 else 10
 
 monitored_parameters <- c(
   "mu",
   "sigma",
+  "rate_normal_weekday",
   "rate_school_holiday",
   "rate_saturday",
   "rate_sunday"
@@ -218,6 +220,7 @@ model_fits <- Map(fit_scenario, names(prior_settings), prior_settings)
 names(model_fits) <- names(prior_settings)
 
 rate_names <- c(
+  rate_normal_weekday = "Normal weekday",
   rate_school_holiday = "School-holiday weekday",
   rate_saturday = "Saturday",
   rate_sunday = "Sunday"
@@ -311,7 +314,7 @@ rate_comparison$Scenario <- factor(
 )
 rate_comparison$DayType <- factor(
   rate_comparison$DayType,
-  levels = c("School-holiday weekday", "Saturday", "Sunday")
+  levels = c("Normal weekday", "School-holiday weekday", "Saturday", "Sunday")
 )
 
 sensitivity_plot <- ggplot(
@@ -335,7 +338,7 @@ sensitivity_plot <- ggplot(
     x = "Posterior rate ratio with 95% credible interval",
     y = NULL,
     title = "Prior sensitivity of day-type effects",
-    subtitle = "Intervals overlap closely across all three prior settings"
+    subtitle = "Intervals overlap closely across all four prior settings"
   ) +
   theme_minimal(base_size = 12) +
   theme(

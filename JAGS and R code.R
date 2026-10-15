@@ -1,8 +1,11 @@
 # Hierarchical Bayesian model for Victorian station patronage
 # Normal weekdays are the reference day type.
-install.packages("glue")
-library(glue)
-source("~/Downloads/DBDA2E-utilities.R")
+source("~/Downloads/DBDA2E-utilities.R") # From Bayesian statistics module.
+"*********************************************************************
+  Kruschke, J. K. (2015). Doing Bayesian Data Analysis, Second Edition:
+  A Tutorial with R, JAGS, and Stan. Academic Press / Elsevier.
+*********************************************************************" 
+# this is where the source is from above.
 required_packages <- c("runjags", "coda", "glue", "ggpubr", "tidyverse", "GGally")
 missing_packages <- required_packages[
   !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
@@ -215,6 +218,7 @@ model {
     sigma[k] <- 1 / sqrt(tau[k])
   }
 
+  rate_normal_weekday <- exp(mu[1])
   rate_school_holiday <- exp(mu[2])
   rate_saturday <- exp(mu[3])
   rate_sunday <- exp(mu[4])
@@ -235,6 +239,7 @@ parameters <- c(
   "mu",
   "sigma",
   "tau",
+  "rate_normal_weekday",
   "rate_school_holiday",
   "rate_saturday",
   "rate_sunday",
@@ -288,6 +293,7 @@ diagMCMC_but_no_autoburnin(model_list, parName = "tau[1]")
 diagMCMC_but_no_autoburnin(model_list, parName = "tau[2]")
 diagMCMC_but_no_autoburnin(model_list, parName = "tau[3]")
 diagMCMC_but_no_autoburnin(model_list, parName = "tau[4]")
+diagMCMC_but_no_autoburnin(model_list, parName = "rate_normal_weekday")
 diagMCMC_but_no_autoburnin(model_list, parName = "rate_school_holiday")
 diagMCMC_but_no_autoburnin(model_list, parName = "rate_saturday")
 diagMCMC_but_no_autoburnin(model_list, parName = "rate_sunday")
@@ -465,7 +471,7 @@ for (parameter in hyperparameter_names) {
 a <- NULL
 for (n in 1:N_obs) {
   a <- rbind(a, summarizePost(as.matrix(model_list, chains = TRUE)[,paste0("lambda[",n,"]")])[3])
-  print(n) # showing how many done out of 888.
+  print(n) # showing how many done out of 888. Takes about 3 minutes.
 }
 a = as.vector(t(as.matrix(a)))
 a
