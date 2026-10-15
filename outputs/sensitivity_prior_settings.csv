@@ -1,0 +1,13 @@
+"Scenario","Parameter","PriorMean","PriorSD"
+"Baseline","mu[1]",7,2
+"Baseline","mu[2]",-0.15,0.25
+"Baseline","mu[3]",-0.5,0.5
+"Baseline","mu[4]",-0.8,0.5
+"Vague","mu[1]",7,10
+"Vague","mu[2]",0,10
+"Vague","mu[3]",0,10
+"Vague","mu[4]",0,10
+"Sceptical","mu[1]",7,2
+"Sceptical","mu[2]",0,0.25
+"Sceptical","mu[3]",0,0.25
+"Sceptical","mu[4]",0,0.25
